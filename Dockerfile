@@ -1,26 +1,68 @@
-# clean base image containing only comfyui, comfy-cli and comfyui-manager
-FROM runpod/worker-comfyui:5.8.4-base
+ARG BASE_IMAGE=nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+FROM ${BASE_IMAGE}
 
-# build-time tokens for gated downloads — never baked into final image.
-# pass via: docker build --build-arg HF_TOKEN=$HF_TOKEN ...
-ARG HF_TOKEN=""
+ARG COMFYUI_VERSION=latest
+ARG CUDA_VERSION_FOR_COMFY=12.1
+ARG WORKER_COMFYUI_REF=d2a557235b3800d68dcc6fa3259125fdf4bed8a6
 
-# install custom nodes into comfyui
-RUN git clone https://github.com/kijai/ComfyUI-KJNodes /comfyui/custom_nodes/ComfyUI-KJNodes && cd /comfyui/custom_nodes/ComfyUI-KJNodes && (git checkout f7eb33abc80a2aded1b46dff0dd14d07856a7d50 2>/dev/null || (git fetch origin f7eb33abc80a2aded1b46dff0dd14d07856a7d50 --depth=1 && git checkout f7eb33abc80a2aded1b46dff0dd14d07856a7d50) || echo "WARN: commit f7eb33abc80a2aded1b46dff0dd14d07856a7d50 unreachable in https://github.com/kijai/ComfyUI-KJNodes, falling back to default branch HEAD")
-RUN git clone https://github.com/kijai/ComfyUI-WanVideoWrapper /comfyui/custom_nodes/ComfyUI-WanVideoWrapper && cd /comfyui/custom_nodes/ComfyUI-WanVideoWrapper && (git checkout f3614e6720744247f3211d60f7b9333f43572384 2>/dev/null || (git fetch origin f3614e6720744247f3211d60f7b9333f43572384 --depth=1 && git checkout f3614e6720744247f3211d60f7b9333f43572384) || echo "WARN: commit f3614e6720744247f3211d60f7b9333f43572384 unreachable in https://github.com/kijai/ComfyUI-WanVideoWrapper, falling back to default branch HEAD")
-RUN git clone https://github.com/kijai/ComfyUI-MelBandRoFormer /comfyui/custom_nodes/ComfyUI-MelBandRoFormer && cd /comfyui/custom_nodes/ComfyUI-MelBandRoFormer && (git checkout b68d9077815387b64d596f8c39607052b95b6eba 2>/dev/null || (git fetch origin b68d9077815387b64d596f8c39607052b95b6eba --depth=1 && git checkout b68d9077815387b64d596f8c39607052b95b6eba) || echo "WARN: commit b68d9077815387b64d596f8c39607052b95b6eba unreachable in https://github.com/kijai/ComfyUI-MelBandRoFormer, falling back to default branch HEAD")
-RUN comfy node install --exit-on-fail comfyui-videohelpersuite@1.7.7 --mode remote || (echo "WARN: comfyui-videohelpersuite@1.7.7 unavailable in registry, falling back to latest" >&2 && comfy node install --exit-on-fail comfyui-videohelpersuite --mode remote)
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_PREFER_BINARY=1
+ENV PYTHONUNBUFFERED=1
+ENV CMAKE_BUILD_PARALLEL_LEVEL=8
+ENV PATH="/opt/venv/bin:${PATH}"
 
-# download models into comfyui
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors' --relative-path models/clip_vision --filename 'clip_vision_h.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Kijai/MelBandRoFormer_comfy/resolve/main/MelBandRoformer_fp32.safetensors?download=true' --relative-path models/diffusion_models --filename 'MelBandRoformer/MelBandRoformer_fp32.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/umt5-xxl-enc-bf16.safetensors' --relative-path models/text_encoders --filename 'umt5-xxl-enc-bf16.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Kijai/WanVideo_comfy_fp8_scaled/resolve/ac66c6ba7d0e4869a742270d2711c4936a5b8207/InfiniteTalk/Wan2_1-InfiniteTalk-Multi_fp8_e4m3fn_scaled_KJ.safetensors?download=true' --relative-path models/diffusion_models --filename 'WanVideo/InfiniteTalk/Wan2_1-InfiniteTalk-Multi_fp8_e4m3fn_scaled_KJ.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors' --relative-path models/loras --filename 'lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors' --relative-path models/vae --filename 'Wan2_1_VAE_bf16.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_fp8_e4m3fn.safetensors' --relative-path models/diffusion_models --filename 'WanVideo/wan2.1_i2v_480p_14B_fp8_e4m3fn.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
-RUN BACKOFFS="10 20 30 60 90" && for i in 1 2 3 4 5; do HF_TOKEN=$HF_TOKEN comfy model download --url 'https://huggingface.co/Kijai/MelBandRoFormer_comfy/resolve/main/MelBandRoformer_fp16.safetensors?download=true' --relative-path models/diffusion_models --filename 'MelBandRoformer/MelBandRoformer_fp16.safetensors' && break; if [ $i -eq 5 ]; then echo "model-download failed after 5 attempts" >&2; exit 1; fi; SLEEP=$(echo $BACKOFFS | cut -d ' ' -f $i) && echo "model-download attempt $i failed; retrying in $SLEEP seconds" >&2; sleep $SLEEP; done
+SHELL ["/bin/bash", "-lc"]
 
-# bake the reference media directly into the image because worker-comfyui request
-# payloads support image uploads but not arbitrary audio file uploads.
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    wget \
+    ca-certificates \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    ffmpeg \
+    openssh-server \
+    libgoogle-perftools4 \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -qO- https://astral.sh/uv/install.sh | sh \
+    && ln -s /root/.local/bin/uv /usr/local/bin/uv \
+    && ln -s /root/.local/bin/uvx /usr/local/bin/uvx \
+    && uv venv /opt/venv
+
+RUN uv pip install comfy-cli pip setuptools wheel runpod~=1.7.12 websocket-client requests
+
+RUN /usr/bin/yes | comfy --workspace /comfyui install --version "${COMFYUI_VERSION}" --cuda-version "${CUDA_VERSION_FOR_COMFY}" --nvidia
+
+RUN git clone https://github.com/runpod-workers/worker-comfyui.git /tmp/worker-comfyui \
+    && cd /tmp/worker-comfyui \
+    && git checkout "${WORKER_COMFYUI_REF}" \
+    && install -m 755 scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode \
+    && install -m 755 scripts/comfy-node-install.sh /usr/local/bin/comfy-node-install \
+    && install -m 755 src/start.sh /start.sh \
+    && install -m 644 src/network_volume.py /network_volume.py \
+    && install -m 644 handler.py /handler.py
+
+WORKDIR /comfyui
+
+RUN comfy-node-install \
+    https://github.com/kijai/ComfyUI-KJNodes.git \
+    https://github.com/kijai/ComfyUI-WanVideoWrapper.git \
+    https://github.com/kijai/ComfyUI-MelBandRoFormer.git \
+    comfyui-videohelpersuite@1.7.7
+
+WORKDIR /
+
+COPY extra_model_paths.yaml /comfyui/extra_model_paths.yaml
 COPY input/ /comfyui/input/
+
+CMD ["/start.sh"]
